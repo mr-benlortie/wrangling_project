@@ -1,0 +1,168 @@
+---
+title: "Analyzing Player Data from the 22-23 Premier League Season"
+author: "Ben Lortie"
+format:
+  html:
+    theme: superhero
+    highlight-style: tango
+editor: visual
+---
+##Clean and prepare the data
+
+```{r}
+#Load relevant packages for data prep
+library(worldfootballR)
+library(lubridate)
+library(dplyr)
+library(writexl)
+library(readxl)
+
+#Import basic player information from transfermarkt.com
+pl_marketvalues <- tm_player_market_values(start_year = 2022, league_url =  "https://www.transfermarkt.us/premier-league/startseite/wettbewerb/GB1")
+
+#Get rid of irrelevant columns and rename for simplicity
+pl_marketvalues[, c(1:4, 6, 12, 14:17, 19)] = NULL
+names(pl_marketvalues)[1:8] <-  c("team", "name", "position", "dob", "age", "nationality", "height_meters", "market_value_usd_mill")
+
+#Find player age using the 'lubridate' package since the column was 'NA'
+pl_marketvalues$dob <- ymd(pl_marketvalues$dob)
+pl_marketvalues$age <- round(interval(pl_marketvalues$dob, Sys.Date())/dyears())
+
+#Convert market values to $ (million) since the column was in scientific notation and euros
+euro_to_usd <- 1.05
+pl_marketvalues$market_value_usd_mill <- pl_marketvalues$market_value_usd_mill * euro_to_usd
+pl_marketvalues$market_value_usd_mill <- pl_marketvalues$market_value_usd_mill / 10^6
+
+#Subset data for Premier League goalkeepers
+gk_subset <- pl_marketvalues[pl_marketvalues$position == "Goalkeeper", ]
+big5_gk <- load_fb_big5_advanced_season_stats(season_end_year = 2023, team_or_player = "player", stat_type = "keepers")
+pl_gk <- big5_gk[big5_gk$Comp == "Premier League", ]
+pl_gk[, c(1:3, 5:8, 18:20, 28)] = NULL
+gk_subset <- left_join(gk_subset, pl_gk, by = c("name" = "Player"))
+
+#Export goalkeeper data to Excel for manual cleaning
+write_xlsx(list(gk_subset, pl_gk), "to_clean_gk.xlsx")
+
+#Load in the cleaned goalkeeper data
+goalkeepers <- read_excel("C:/Users/blort/OneDrive/Desktop/MSBR70280/Project/cleaned_gk.xlsx")
+
+#Get rid of duplicate goalkeeper names and goalkeepers that did not play last season
+goalkeepers <- na.omit(goalkeepers)
+goalkeepers <- goalkeepers[!duplicated(goalkeepers$name), ]
+
+#Subset data for Premier League defenders
+def_subset <- pl_marketvalues[grep("Back", pl_marketvalues$position), ]
+big5_def <- load_fb_big5_advanced_season_stats(season_end_year = 2023, team_or_player = "player", stat_type = "defense")
+pl_def <- big5_def[big5_def$Comp == "Premier League", ]
+pl_def[, c(1:3, 5:8, 26)] = NULL
+def_subset <- left_join(def_subset, pl_def, by = c("name" = "Player"))
+
+#Export defender data to Excel for manual cleaning
+write_xlsx(list(def_subset, pl_def), "to_clean_def.xlsx")
+
+#Load in the cleaned defender data
+defenders <- read_excel("C:/Users/blort/OneDrive/Desktop/MSBR70280/Project/cleaned_def.xlsx")
+
+#Get rid of duplicate defender names and defenders that did not play last season
+defenders <- na.omit(defenders)
+defenders <- defenders[!duplicated(defenders$name), ]
+
+#Subset data for Premier League midfielders
+mid_subset <- pl_marketvalues[grep("Mid", pl_marketvalues$position), ]
+big5_mid1 <- load_fb_big5_advanced_season_stats(season_end_year = 2023, team_or_player = "player", stat_type = "passing")
+pl_mid1 <- big5_mid1[big5_mid1$Comp == "Premier League", ]
+big5_mid2 <- load_fb_big5_advanced_season_stats(season_end_year = 2023, team_or_player = "player", stat_type = "passing_types")
+pl_mid2 <- big5_mid2[big5_mid2$Comp == "Premier League", ]
+big5_mid3 <- load_fb_big5_advanced_season_stats(season_end_year = 2023, team_or_player = "player", stat_type = "defense")
+pl_mid3 <- big5_mid3[big5_mid3$Comp == "Premier League", ]
+pl_mid <- cbind(pl_mid1, pl_mid2[, c(10:24)], pl_mid3[, c(10:25)])
+pl_mid[, c(1:3, 5:8, 26, 31:32)] = NULL
+mid_subset <- left_join(mid_subset, pl_mid, by = c("name" = "Player"))
+
+#Export midfielder data to Excel for manual cleaning
+write_xlsx(list(mid_subset, pl_mid), "to_clean_mid.xlsx")
+
+#Load in the cleaned midfielder data
+midfielders <- read_excel("C:/Users/blort/OneDrive/Desktop/MSBR70280/Project/cleaned_mid.xlsx")
+
+#Get rid of duplicate midfielder names and midfielders that did not play last season
+midfielders <- na.omit(midfielders)
+midfielders <- midfielders[!duplicated(midfielders$name), ]
+
+#Subset data for Premier League forwards
+fwd_subset <- pl_marketvalues[grep("Forward|Striker|Winger", pl_marketvalues$position), ]
+big5_fwd <- load_fb_big5_advanced_season_stats(season_end_year = 2023, team_or_player = "player", stat_type = "standard")
+pl_fwd <- big5_fwd[big5_fwd$Comp == "Premier League", ]
+pl_fwd[, c(1:3, 5:8, 19:20, 38)] = NULL
+fwd_subset <- left_join(fwd_subset, pl_fwd, by = c("name" = "Player"))
+
+#Export forward data to Excel for manual cleaning
+write_xlsx(list(fwd_subset, pl_fwd), "to_clean_fwd.xlsx")
+
+#Load in the cleaned forward data
+forwards <- read_excel("C:/Users/blort/OneDrive/Desktop/MSBR70280/Project/cleaned_fwd.xlsx")
+
+#Get rid of duplicate forward names and forwards that did not play last season
+forwards <- na.omit(forwards)
+forwards <- forwards[!duplicated(forwards$name), ]
+
+#Save the finalized subsets
+save(forwards, midfielders, defenders, goalkeepers, file = "player_data_vF.RData")
+```
+
+##Clear the environment and load the previously-saved data
+
+```{r}
+load("player_data_vF.RData")
+```
+
+##Forward analysis
+
+```{r}
+#Find the top 3 forwards by goals scored
+forwards <- forwards[order(forwards$Gls, decreasing = TRUE), ]
+forwards[1:3, c(2,13)]
+
+#Find the top 3 forwards by assists
+forwards <- forwards[order(forwards$Ast, decreasing = TRUE), ]
+forwards[1:3, c(2,14)]
+```
+
+##Midfielder analysis
+
+```{r}
+#Find the top 3 midfielders by assists
+midfielders <- midfielders[order(midfielders$Ast, decreasing = TRUE), ]
+midfielders[1:3, c(2,24)]
+
+#Find the top 3 midfielders by tackles and interceptions
+midfielders <- midfielders[order(midfielders$`Tkl+Int`, decreasing = TRUE), ]
+midfielders[1:3, c(2,48,60,61)]
+```
+
+##Defender analysis
+
+```{r}
+#Filter defender data based on minutes played per 90
+defenders_filtered <- defenders[defenders$Mins_Per_90 >= 20, ]
+
+#Find the top 3 defenders by tackles and interceptions
+defenders_filtered <- defenders_filtered[order(defenders_filtered$`Tkl+Int`, decreasing = TRUE), ]
+defenders_filtered[1:3, c(2, 10, 22, 23)]
+
+#Find the top 3 defenders by percentage of successful challenges
+defenders_filtered <- defenders_filtered[order(defenders_filtered$Tkl_percent_Challenges, decreasing = TRUE), ]
+defenders_filtered[1:3, c(2, 15, 17)]
+```
+
+##Goalkeeper analysis
+
+```{r}
+#Find the top 3 goalkeepers by clean sheets
+goalkeepers <- goalkeepers[order(goalkeepers$CS, decreasing = TRUE), ]
+goalkeepers[1:4, c(2,18)]
+
+#Find the top 3 goalkeepers by saves
+goalkeepers <- goalkeepers[order(goalkeepers$Saves, decreasing = TRUE), ]
+goalkeepers[1:3, c(2,16)]
+```
